@@ -172,7 +172,8 @@ static int read_sample(Sample *sample, bool *has_swap)
     return 0;
 }
 
-static unsigned long color_pixel(Display *display, const char *name)
+/* Allocate a named colour, also storing it as opaque ARGB in argb if set. */
+static unsigned long color_pixel(Display *display, const char *name, unsigned long *argb)
 {
     XColor color, exact;
     if (!XAllocNamedColor(display, DefaultColormap(display, DefaultScreen(display)),
@@ -180,6 +181,9 @@ static unsigned long color_pixel(Display *display, const char *name)
         fprintf(stderr, "xmem: invalid color: %s\n", name);
         exit(EXIT_FAILURE);
     }
+    if (argb)
+        *argb = 0xff000000UL | (unsigned long)(color.red >> 8) << 16 |
+                (unsigned long)(color.green >> 8) << 8 | (unsigned long)(color.blue >> 8);
     return color.pixel;
 }
 
@@ -296,25 +300,26 @@ static bool in_rounded_square(double u, double v, double inset, double radius)
 }
 
 /* Colour of the icon at (u, v), both 0-1 with v = 0 at the top: a miniature
-   of the graph in a rounded frame. Returns ARGB, transparent outside it. */
-static unsigned long icon_color(double u, double v)
+   of the graph in a rounded frame, using the foreground and background
+   colours fg and bg (ARGB). Returns ARGB, transparent outside the frame. */
+static unsigned long icon_color(double u, double v, unsigned long fg, unsigned long bg)
 {
     const double margin = 0.04, radius = 0.18, frame = 0.07;
     if (!in_rounded_square(u, v, margin, radius)) return 0;
-    if (!in_rounded_square(u, v, margin + frame, radius - frame)) return 0xff2b3440;
+    if (!in_rounded_square(u, v, margin + frame, radius - frame)) return fg;
     double h = 1.0 - v;
     double used = 0.30 + 0.20 * u + 0.07 * sin(u * 11.0);
     double cache = used + 0.18;
     double swap = 0.18 + 0.12 * u;
     if (h > swap - 0.04 && h < swap + 0.04) return 0xffd83a3a;
-    if (h < used) return 0xff2b3440;
+    if (h < used) return fg;
     if (h < cache) return 0xffa8b4c4;
-    return 0xffffffff;
+    return bg;
 }
 
 /* Set _NET_WM_ICON so panels and task switchers can show something better
    than a generic X. Each size is supersampled 4x4 for smooth edges. */
-static void set_icon(Display *display, Window window)
+static void set_icon(Display *display, Window window, unsigned long fg, unsigned long bg)
 {
     static const int sizes[] = { 16, 24, 32, 48, 64 };
     enum { SUB = 4 };
@@ -335,7 +340,7 @@ static void set_icon(Display *display, Window window)
                 for (int sy = 0; sy < SUB; ++sy) {
                     for (int sx = 0; sx < SUB; ++sx) {
                         unsigned long c = icon_color((x + (sx + 0.5) / SUB) / n,
-                                                     (y + (sy + 0.5) / SUB) / n);
+                                                     (y + (sy + 0.5) / SUB) / n, fg, bg);
                         unsigned int ca = (c >> 24) & 0xff;
                         a += ca;
                         r += ((c >> 16) & 0xff) * ca / 255;
@@ -403,18 +408,19 @@ int main(int argc, char **argv)
         if (flags & XNegative) x += DisplayWidth(display, screen) - (int)width;
         if (flags & YNegative) y += DisplayHeight(display, screen) - (int)height;
     }
-    unsigned long fg = color_pixel(display, options.foreground);
-    unsigned long bg = color_pixel(display, options.background);
-    unsigned long hl = color_pixel(display, options.highlight);
-    unsigned long cc = color_pixel(display, options.cache_color);
-    unsigned long sc = color_pixel(display, options.swap_color);
+    unsigned long fg_argb, bg_argb;
+    unsigned long fg = color_pixel(display, options.foreground, &fg_argb);
+    unsigned long bg = color_pixel(display, options.background, &bg_argb);
+    unsigned long hl = color_pixel(display, options.highlight, NULL);
+    unsigned long cc = color_pixel(display, options.cache_color, NULL);
+    unsigned long sc = color_pixel(display, options.swap_color, NULL);
     Window window = XCreateSimpleWindow(display, RootWindow(display, screen),
                                          x, y, width, height, 1, fg, bg);
     XStoreName(display, window, "xmem");
     XSelectInput(display, window, ExposureMask | StructureNotifyMask);
     XClassHint class_hint = { .res_name = "xmem", .res_class = "Xmem" };
     XSetClassHint(display, window, &class_hint);
-    set_icon(display, window);
+    set_icon(display, window, fg_argb, bg_argb);
     Atom wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &wm_delete, 1);
 
