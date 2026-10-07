@@ -35,5 +35,5 @@ The graph retains one sample per pixel of window width and preserves the
 newest samples when resized. The label rounds up to a whole percent.
 
 The window sets its own icon (`_NET_WM_ICON`), a miniature of the graph in the
-`-fg` and `-bg` colours, so panels and task switchers show it instead of a
-generic X icon.
+same colours, so panels and task switchers show it instead of a generic X
+icon.
