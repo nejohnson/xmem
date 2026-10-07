@@ -299,12 +299,14 @@ static bool in_rounded_square(double u, double v, double inset, double radius)
     return dx * dx + dy * dy <= radius * radius;
 }
 
-/* Icon colours as opaque ARGB, from the graph's colour options. */
+/* Icon colours as opaque ARGB, from the graph's colour options, and whether
+   to draw the swap line (not with -noswap or when there is no swap). */
 typedef struct {
     unsigned long foreground;
     unsigned long background;
     unsigned long cache;
     unsigned long swap;
+    bool show_swap;
 } IconColors;
 
 /* Colour of the icon at (u, v), both 0-1 with v = 0 at the top: a miniature
@@ -318,7 +320,7 @@ static unsigned long icon_color(double u, double v, const IconColors *colors)
     double used = 0.30 + 0.20 * u + 0.07 * sin(u * 11.0);
     double cache = used + 0.18;
     double swap = 0.18 + 0.12 * u;
-    if (h > swap - 0.04 && h < swap + 0.04) return colors->swap;
+    if (colors->show_swap && h > swap - 0.04 && h < swap + 0.04) return colors->swap;
     if (h < used) return colors->foreground;
     if (h < cache) return colors->cache;
     return colors->background;
@@ -415,7 +417,7 @@ int main(int argc, char **argv)
         if (flags & XNegative) x += DisplayWidth(display, screen) - (int)width;
         if (flags & YNegative) y += DisplayHeight(display, screen) - (int)height;
     }
-    IconColors icon_colors;
+    IconColors icon_colors = { .show_swap = options.show_swap && has_swap };
     unsigned long fg = color_pixel(display, options.foreground, &icon_colors.foreground);
     unsigned long bg = color_pixel(display, options.background, &icon_colors.background);
     unsigned long hl = color_pixel(display, options.highlight, NULL);
@@ -470,6 +472,11 @@ int main(int argc, char **argv)
             if (read_sample(&sample, &has_swap) == 0) {
                 append_sample(&graph, sample, has_swap);
                 draw(&graph);
+                /* Swap was turned on or off: redraw the icon to match. */
+                if (icon_colors.show_swap != (options.show_swap && has_swap)) {
+                    icon_colors.show_swap = options.show_swap && has_swap;
+                    set_icon(display, window, &icon_colors);
+                }
             } else {
                 fprintf(stderr, "xmem: /proc/meminfo: %s\n", strerror(errno));
             }
