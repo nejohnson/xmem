@@ -1,8 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <X11/Xlib.h>
+#include <X11/Xatom.h>
 #include <X11/Xutil.h>
 #include <errno.h>
+#include <math.h>
 #include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -282,6 +284,83 @@ static void draw(Graph *graph)
     }
 }
 
+/* Whether (u, v) lies inside a square inset from the 0-1 unit square by
+   inset on each side, with corners of the given radius. */
+static bool in_rounded_square(double u, double v, double inset, double radius)
+{
+    double lo = inset + radius, hi = 1.0 - inset - radius;
+    double dx = u < lo ? lo - u : u > hi ? u - hi : 0.0;
+    double dy = v < lo ? lo - v : v > hi ? v - hi : 0.0;
+    if (u < inset || u > 1.0 - inset || v < inset || v > 1.0 - inset) return false;
+    return dx * dx + dy * dy <= radius * radius;
+}
+
+/* Colour of the icon at (u, v), both 0-1 with v = 0 at the top: a miniature
+   of the graph in a rounded frame. Returns ARGB, transparent outside it. */
+static unsigned long icon_color(double u, double v)
+{
+    const double margin = 0.04, radius = 0.18, frame = 0.07;
+    if (!in_rounded_square(u, v, margin, radius)) return 0;
+    if (!in_rounded_square(u, v, margin + frame, radius - frame)) return 0xff2b3440;
+    double h = 1.0 - v;
+    double used = 0.30 + 0.20 * u + 0.07 * sin(u * 11.0);
+    double cache = used + 0.18;
+    double swap = 0.18 + 0.12 * u;
+    if (h > swap - 0.04 && h < swap + 0.04) return 0xffd83a3a;
+    if (h < used) return 0xff2b3440;
+    if (h < cache) return 0xffa8b4c4;
+    return 0xffffffff;
+}
+
+/* Set _NET_WM_ICON so panels and task switchers can show something better
+   than a generic X. Each size is supersampled 4x4 for smooth edges. */
+static void set_icon(Display *display, Window window)
+{
+    static const int sizes[] = { 16, 24, 32, 48, 64 };
+    enum { SUB = 4 };
+    size_t total = 0;
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(*sizes); ++i)
+        total += 2 + (size_t)sizes[i] * (size_t)sizes[i];
+    /* Format 32 properties are passed as longs whatever their size. */
+    unsigned long *data = malloc(total * sizeof(*data));
+    if (!data) return;
+    unsigned long *p = data;
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(*sizes); ++i) {
+        int n = sizes[i];
+        *p++ = (unsigned long)n;
+        *p++ = (unsigned long)n;
+        for (int y = 0; y < n; ++y) {
+            for (int x = 0; x < n; ++x) {
+                unsigned int a = 0, r = 0, g = 0, b = 0;
+                for (int sy = 0; sy < SUB; ++sy) {
+                    for (int sx = 0; sx < SUB; ++sx) {
+                        unsigned long c = icon_color((x + (sx + 0.5) / SUB) / n,
+                                                     (y + (sy + 0.5) / SUB) / n);
+                        unsigned int ca = (c >> 24) & 0xff;
+                        a += ca;
+                        r += ((c >> 16) & 0xff) * ca / 255;
+                        g += ((c >> 8) & 0xff) * ca / 255;
+                        b += (c & 0xff) * ca / 255;
+                    }
+                }
+                /* Average premultiplied samples, then un-premultiply. */
+                a /= SUB * SUB;
+                if (a) {
+                    r = r / (SUB * SUB) * 255 / a;
+                    g = g / (SUB * SUB) * 255 / a;
+                    b = b / (SUB * SUB) * 255 / a;
+                }
+                *p++ = (unsigned long)a << 24 | (unsigned long)(r > 255 ? 255 : r) << 16 |
+                       (unsigned long)(g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b);
+            }
+        }
+    }
+    Atom net_wm_icon = XInternAtom(display, "_NET_WM_ICON", False);
+    XChangeProperty(display, window, net_wm_icon, XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)data, (int)total);
+    free(data);
+}
+
 static long long monotonic_ms(void)
 {
     struct timespec now;
@@ -335,6 +414,7 @@ int main(int argc, char **argv)
     XSelectInput(display, window, ExposureMask | StructureNotifyMask);
     XClassHint class_hint = { .res_name = "xmem", .res_class = "Xmem" };
     XSetClassHint(display, window, &class_hint);
+    set_icon(display, window);
     Atom wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &wm_delete, 1);
 

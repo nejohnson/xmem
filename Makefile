@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2
 CPPFLAGS ?=
 LDFLAGS ?=
-LDLIBS ?= -lX11
+LDLIBS ?= -lX11 -lm
 
 all: xmem
 
