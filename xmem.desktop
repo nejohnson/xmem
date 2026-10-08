@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=xmem
+Comment=Memory and swap usage graph
+Exec=xmem
+Icon=xmem
+Terminal=false
+Categories=System;Monitor;
+StartupWMClass=Xmem
