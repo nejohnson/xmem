@@ -16,7 +16,7 @@ then run:
 
 Options: `-update`, `-label`, `-nolabel`, `-noswap`, `-display`, `-geometry`,
 `-fg`/`-foreground`, `-bg`/`-background`, `-hl`/`-highlight`, `-cachecolor`,
-and `-swapcolor`. Run `./xmem -help` for a summary.
+`-swapcolor`, and `-swapwidth` (swap line thickness in pixels, default 1). Run `./xmem -help` for a summary.
 
 What is drawn:
 

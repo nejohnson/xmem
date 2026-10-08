@@ -22,6 +22,7 @@ typedef struct {
     const char *cache_color;
     const char *swap_color;
     int update;
+    int swap_width;
     bool show_label;
     bool show_swap;
 } Options;
@@ -58,6 +59,7 @@ static void usage(FILE *out)
     fprintf(out, "Usage: xmem [-update seconds] [-label text | -nolabel] [-noswap]\n"
                  "            [-display display] [-geometry geometry] [-fg color] [-bg color]\n"
                  "            [-hl color] [-cachecolor color] [-swapcolor color]\n"
+                 "            [-swapwidth pixels]\n"
                  "Plot physical memory and swap usage as percentages, updating every 5 seconds.\n"
                  "Memory in use is filled, reclaimable cache is a lighter band above it, and\n"
                  "swap is a line.\n");
@@ -77,7 +79,7 @@ static void parse_options(int argc, char **argv, Options *options)
     *options = (Options){ .update = 5, .show_label = true, .show_swap = true,
                           .foreground = "black", .background = "white",
                           .highlight = "gray60", .cache_color = "gray80",
-                          .swap_color = "red" };
+                          .swap_color = "red", .swap_width = 1 };
     for (int i = 1; i < argc; ++i) {
         const char *arg = argv[i];
         if (!strcmp(arg, "-help") || !strcmp(arg, "--help")) {
@@ -114,6 +116,16 @@ static void parse_options(int argc, char **argv, Options *options)
             options->cache_color = option_value(argc, argv, &i);
         } else if (!strcmp(arg, "-swapcolor")) {
             options->swap_color = option_value(argc, argv, &i);
+        } else if (!strcmp(arg, "-swapwidth")) {
+            const char *value = option_value(argc, argv, &i);
+            char *end;
+            errno = 0;
+            long pixels = strtol(value, &end, 10);
+            if (errno || *end || end == value || pixels < 1 || pixels > 20) {
+                fprintf(stderr, "xmem: swapwidth must be 1-20 pixels\n");
+                exit(EXIT_FAILURE);
+            }
+            options->swap_width = (int)pixels;
         } else {
             fprintf(stderr, "xmem: unknown option: %s\n", arg);
             usage(stderr);
@@ -440,6 +452,8 @@ int main(int argc, char **argv)
     graph.highlight = make_gc(display, window, hl);
     graph.cache = make_gc(display, window, cc);
     graph.swap = make_gc(display, window, sc);
+    XSetLineAttributes(display, graph.swap, (unsigned int)options.swap_width,
+                       LineSolid, CapRound, JoinRound);
     graph.font = XLoadQueryFont(display, "fixed");
     if (!graph.font) {
         fprintf(stderr, "xmem: cannot load the fixed font\n");
